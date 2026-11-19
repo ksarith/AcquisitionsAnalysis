@@ -37,6 +37,10 @@ python3 -m unittest discover -s tests                      # the tool's own test
 
 Both tools exit 0 when clean, 3 when they find problems, 2 on a usage or input error. A synthetic worked example (invented deal, prospective and retrospective assessments) is in [`examples/synthetic/`](examples/synthetic/): run the tools on it with `--data examples/synthetic` or by passing its `assessments.csv`. Never copy it into `data/`.
 
+## For agents
+
+[`SKILL.md`](SKILL.md) tells an agent when to use this method, what it needs, how to gather and record evidence, what it must never do, and how to report. [`docs/report_template.md`](docs/report_template.md) is the output format.
+
 ## Documents
 
 - Core questions, scoring and grade rules: [`docs/methodology.md`](docs/methodology.md)
@@ -63,4 +67,4 @@ Both tools exit 0 when clean, 3 when they find problems, 2 on a usage or input e
 
 ## Status
 
-Early draft (v0.3). It is a methodology with deterministic checks, not yet a validated predictor. Grade thresholds and weights are starting values and have not been calibrated; no real deals have been assessed. v0.3 fixed a grading inversion, added the three-table data model, the evidence rules and the tools. It changed no weight, band boundary or question.
+Early draft (package v0.0.4; core method v0.3). It is a methodology with deterministic checks, not yet a validated predictor. Grade thresholds and weights are starting values and have not been calibrated; no real deals have been assessed. v0.3 fixed a grading inversion, added the three-table data model, the evidence rules and the tools. It changed no weight, band boundary or question. Package v0.0.4 added `SKILL.md` and the report template; the core method is unchanged.
