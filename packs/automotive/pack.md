@@ -1,6 +1,6 @@
 # Automotive pack (v0.1)
 
-The automotive specialization of the Acquisitions Analysis core ([`../../docs/methodology.md`](../../docs/methodology.md)). Version 0.1 is an **extraction**: everything automotive-specific in the earlier all-automotive method (core v0.1) moved here unchanged, so deals graded under that version keep the same meaning. Weights, bands and thresholds are the core's.
+The automotive specialization of the DealIntegrity core ([`../../docs/methodology.md`](../../docs/methodology.md)). Version 0.1 is an **extraction**: everything automotive-specific in the earlier all-automotive method (core v0.1) moved here unchanged, so deals graded under that version keep the same meaning. Weights, bands and thresholds are the core's.
 
 ## 1. Scope
 
