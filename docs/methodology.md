@@ -1,6 +1,13 @@
-# Methodology (core)
+# Methodology (DealIntegrity)
 
-This is the sector-neutral core. A sector's specialization lives in a pack (see [`../packs/README.md`](../packs/README.md)). Where a core question has a sector reading, the pack shows the original wording beside it.
+DealIntegrity assesses two separate things about an M&A deal and keeps them apart:
+
+- **Structural integrity:** is the deal itself sound? Eleven breakers (Gate A) and nine scored dimensions (Gate B), graded Great, Good, Okay, Bad or Horrid. This layer is **core-0.3**, carried forward unchanged from AcquisitionsAnalysis.
+- **Negotiation integrity:** was the deal negotiated with process discipline, strategic alignment and integrity? Ten dimensions and three failure predicates (Gate C), classified Exceptional down to Failed. This layer is **negotiation-0.1**, new, and uncalibrated. The idea comes from Grok's DealIntegrity v0.1.0 draft; this version rebuilds it on the tested core.
+
+An assessment covers one side or both (`assessment_scope`). The **overall verdict** is the worse of the sides that are in scope, so excellence on one side can never paper over failure on the other.
+
+The core is sector-neutral. A sector's specialization lives in a pack (see [`../packs/README.md`](../packs/README.md)). Where a core question has a sector reading, the pack shows the original wording beside it.
 
 ## 1. Principles
 
@@ -8,10 +15,12 @@ This is the sector-neutral core. A sector's specialization lives in a pack (see 
 - **Evidence or unknown.** Each answer is `Y`, `N`, or `U` (unknown). Every answer except `U` is backed by at least one evidence row (see [`schema.md`](schema.md)). `N` is a finding, not a default: "nothing found" needs a row saying what was searched and where. `U` is treated as a risk until resolved.
 - **Two grading modes.** `prospective` uses only information available at announcement. `retrospective` uses hindsight. Never mix them in one assessment: a prospective assessment carries an `information_cutoff` and the checker rejects evidence dated after it. A deal can have many assessments; they never overwrite each other.
 - **Perspective matters.** Grade from the acquirer's point of view unless `grade_perspective` says otherwise. A great deal for sellers can be a horrid deal for buyers.
+- **Asset, process and legitimacy are different questions.** A strong deal can be badly negotiated, a brilliant negotiation can produce a poor deal, and a favorable number can be reached by deception. They are scored separately and combined only by the worst-of rule.
+- **Hard overrides.** Structural breakers and negotiation failure predicates cannot be compensated by high scores elsewhere.
 - **The agent judges; the tool computes.** Gathering evidence and answering the questions is judgment. Applying the grade rules and the maintenance formulas is mechanical and is done by [`../tools/calculate_grade.py`](../tools/calculate_grade.py), never improvised. Recorded computed fields are checked against it by [`../tools/validate_data.py`](../tools/validate_data.py).
 - **Core first, pack second.** Answer the core question, reading it through the sector's pack when one applies. Weights and bands are the core's and do not vary by pack.
 
-## 2. Gate 1: Deal breakers (mandatory)
+## 2. Gate A: Structural deal breakers (mandatory when the structural side is in scope)
 
 Answer every question. Any `Y` or `U` is an **unmitigated breaker** unless a specific mitigation is documented with a source.
 
@@ -33,7 +42,7 @@ Answer every question. Any `Y` or `U` is an **unmitigated breaker** unless a spe
 
 Record per breaker: `Y`, `N`, `U`, or `M` (mitigated, with note).
 
-## 3. Gate 2: Scored dimensions
+## 3. Gate B: Structural scored dimensions
 
 Answer the questions, then score each dimension **0 to 4**.
 
@@ -126,13 +135,133 @@ Rules:
 - **Non-positive adjusted EBITDA (starting rule).** If `maint_adj_ebitda` is zero or negative, upkeep consumes the earnings: the multiple is not meaningful and is left blank, D4 may not be scored above 1, and `maint_notes` must explain. D9 is scored on its own questions.
 - `price_adj_for_known` is recorded in `price_adj_for_known_usd_m`, and the adjusted EBITDA in `maint_adj_ebitda_usd_m`; both are computed by the tool.
 
-## 4. Computing the grade
+## 4. Gate C: Negotiation integrity
+
+This gate evaluates the **conduct of the negotiation**, not just the final numbers. It answers: given the information available, how effectively did the negotiator discover value, manage uncertainty, represent interests, preserve relationships and allocate risk, and did they do so with epistemic and procedural legitimacy?
+
+### 4.1 Separation of concerns
+
+```
+Observed Negotiation Score  ≠  Negotiation Outcome Score  ≠  Negotiation Legitimacy Score
+```
+
+A negotiator may perform brilliantly and still lose because of constraints, perform poorly and still “win” on leverage, or produce a favorable number through deception. These must score differently.
+
+### 4.2 What can be observed
+
+Many negotiation facts are private. Public deals leave a record: the merger agreement (risk allocation), the proxy or offer document's background-of-the-transaction section (sequence, alternatives, process), fairness opinions, special-committee reports, regulator filings and press accounts. A private negotiation may leave almost nothing.
+
+- Score a dimension only from evidence. If the record does not let you judge it, **leave it blank**. Blank means unknown, and an unknown is never a pass.
+- A score drawn from an inference, not a direct record, is allowed but must be backed by an evidence row of type `inference`, and the checker flags a score that rests only on inference.
+- The background of a transaction often becomes public only after the announcement. A prospective negotiation assessment may therefore set `information_cutoff` to the date that disclosure became public; say so in `negotiation_notes`. Evidence dated after the cutoff is still rejected.
+- `internal` evidence (board memos, interviews) is valid only if it was available to the assessment's perspective. In a prospective assessment the checker warns so you confirm it.
+
+### 4.3 Dimensions (whole numbers 0 to 100)
+
+Each dimension is scored with a whole number from 0 to 100, or left blank (unknown). Anchors:
+
+- 0 to 24 = absent or severely deficient
+- 25 to 49 = weak or minimal
+- 50 to 69 = adequate
+- 70 to 84 = strong
+- 85 to 100 = exceptional
+
+#### Process Quality (PQ) — 50 % of NQS
+
+**N1. Preparation (weight 10 %)**  
+Readiness before the first substantive exchange: market research, BATNA identification, counterparty analysis, objective definition, constraint mapping.
+
+**N2. Information Discovery (weight 15 %)**  
+How much uncertainty was reduced. Meaningful questions asked, assumptions tested, hidden constraints surfaced, motivations discovered.  
+Metric conceptually: Knowledge End State − Knowledge Start State.
+
+**N3. Value Creation (weight 15 %)**  
+Expansion of the solution space beyond pure price: alternative structures, timing, support, options, future value, shared-gain mechanisms.  
+“Price only” is the low end; multi-dimensional packages that enlarge the pie are the high end.
+
+**N4. Communication Discipline (weight 10 %)**  
+Clarity, listening, precision, emotional regulation, responsiveness.
+
+#### Strategic Quality (SQ) — 30 % of NQS
+
+**N5. Value Capture (weight 10 %)**  
+Realized share of the negotiable surplus.  
+Conceptual form: Captured Value / Available Value.
+
+**N6. Objective Alignment (weight 10 %)**  
+Did the negotiation actually support the real mission?  
+Example failure: acquisition goal = talent retention; negotiation optimizes for lowest price; key people leave.
+
+**N7. Relationship Preservation (weight 10 %)**  
+Future viability: trust retained, counterparty satisfaction, follow-up willingness, repeat-transaction likelihood.
+
+#### Governance Quality (GQ) — 20 % of NQS
+
+**N8. Risk Allocation (weight 8 %)**  
+Was legal, financial, execution and counterparty risk consciously allocated and documented?
+
+**N9. Epistemic Integrity (weight 8 %)**  
+Evidence quality, assumption disclosure, truthfulness, clear distinction between facts, estimates and speculation.
+
+**N10. Procedural Legitimacy (weight 4 %)**  
+Compliance, ethics, authority, approval pathways.
+
+### 4.4 Scoring, unknowns and classification
+
+```
+NQS = 0.10*N1 + 0.15*N2 + 0.15*N3 + 0.10*N4
+    + 0.10*N5 + 0.10*N6 + 0.10*N7
+    + 0.08*N8 + 0.08*N9 + 0.04*N10          (0 to 100, one decimal)
+```
+
+| NQS | Classification |
+|-----|----------------|
+| 95 to 100 | Exceptional |
+| 85 to under 95 | High Quality |
+| 70 to under 85 | Competent |
+| 55 to under 70 | Marginal |
+| 40 to under 55 | Poor |
+| under 40 | Failed |
+
+The tool computes on whole points (score x weight, summed) so the bands have no rounding edge. These bands are starting values, uncalibrated.
+
+**Unknowns.** All ten dimensions are needed for an NQS. If any dimension is blank the classification is **Unresolved**: no NQS is computed, the result is treated as Failed for the overall verdict and marked provisional, and the report lists which dimensions would need resolving. A blank dimension is never skipped, averaged away, or read as a pass.
+
+### 4.5 Constitutional failure predicates
+
+These override the arithmetic. Any one that fires makes the classification **Failed**, even when other dimensions are unknown.
+
+| ID | Predicate | Threshold | Result |
+|----|-----------|-----------|--------|
+| F1 | Epistemic integrity (N9) | below 40 | Epistemically invalid |
+| F2 | Risk allocation (N8) | below 40 | Unacceptable risk |
+| F3 | Procedural legitimacy (N10) | below 40 | Procedurally invalid |
+
+An unknown predicate dimension (N8, N9 or N10 blank) does not fire a predicate; it makes the classification Unresolved, which grades as Failed provisionally. Unknown is not a pass.
+
+### 4.6 Multiplicative form (experimental diagnostic)
+
+Grok's draft proposed a governing multiplicative form, `OutcomePotential x EpistemicIntegrity x RiskAdequacy x StrategicAlignment`, so that a critical failure cannot be offset. The draft did not say how the four factors map to the ten dimensions. This version fixes one mapping and reports the result as `nq_multiplicative`, **a diagnostic only: it enters no classification or verdict until it has been tested on real negotiations.**
+
+```
+OutcomePotential   = (15*N2 + 15*N3 + 10*N5) / 4000
+EpistemicIntegrity = N9 / 100
+RiskAdequacy       = N8 / 100
+StrategicAlignment = N6 / 100
+nq_multiplicative  = product, 0 to 1, three decimals (blank unless N2, N3, N5, N6, N8, N9 are all present)
+```
+
+The mapping is this version's choice and is open to change.
+
+## 5. Computing the grades and the overall verdict
 
 ```
 weighted_score = sum(dimension_score x weight)
 max_score      = 4 x sum(weights)   # 4 x 15 = 60
 score_pct      = weighted_score / max_score
 ```
+
+### Structural side
 
 The grade is the **worst** of three independent ceilings. Each is computed on its own, then the lowest wins. There is no order of checks to get wrong.
 
@@ -156,23 +285,45 @@ Examples: all dimensions 4 with one `M` breaker is **Okay** (breaker ceiling). A
 
 *Why this changed in v0.3:* v0.2 and earlier checked breakers, then zero-scored dimensions, then percentage, first match winning. That graded a 0% deal with a zero dimension **Bad**, but a 20% deal with none **Horrid**. The worst-of rule fixes the inversion and gives the same grade as the old table everywhere else.
 
-## 5. Packs
+### Negotiation side
+
+The NQS, the predicates and the classification are computed as in section 4.4 and 4.5. The tool also reports the active predicates and, as a diagnostic, `nq_multiplicative`.
+
+### Overall verdict
+
+Both sides are put on one shared scale, and the overall verdict is the **worse** of the sides in scope:
+
+| Negotiation classification | On the shared scale |
+|----------------------------|---------------------|
+| Failed, Unresolved | Horrid |
+| Poor | Bad |
+| Marginal | Okay |
+| Competent | Good |
+| High Quality, Exceptional | Great |
+
+The structural grade already uses the scale Horrid, Bad, Okay, Good, Great. The tool also reports `overall_driver` (which side set the verdict: `structural`, `negotiation` or `both`) and `overall_provisional` (`yes` if any breaker is `U` or the negotiation is Unresolved: resolving the unknowns could change the result). If only one side is in scope, the overall verdict is that side's result.
+
+Examples: structural Great with negotiation Failed is **Horrid**; structural Horrid with negotiation Exceptional is **Horrid**; structural Good with negotiation Competent is **Good**, driven by both.
+
+## 6. Packs
 
 A pack sharpens the core for one sector. It may define scope, field values, sector readings of core questions, extra prompts and extra breakers. It may not change weights, bands, the order of checks or the unknown rule. Rules and the template are in [`../packs/README.md`](../packs/README.md).
 
 Record `sector` (the pack id, or `general`) on the deal and `method_version` (core and pack versions) on every assessment, so a grade can be reproduced.
 
-## 6. Calibration (backtesting)
+## 7. Calibration (backtesting)
 
 1. Grade 20 or more closed deals prospectively, using only announcement-time information (one `prospective` assessment each).
 2. Record outcomes 3+ years later in the deal's `outcome_notes` (value created or destroyed, impairments, divestitures, integration problems) and add a `retrospective` assessment of the same deal.
 3. Compare the two assessments. If "Good" deals regularly end badly, find which question failed to catch the problem and add or sharpen it.
 4. Revise thresholds and weights only after backtesting, and log each change below.
-5. Backtest **per pack** (20 or more deals in the sector) before changing that pack's readings or thresholds. A change to the core needs a pooled backtest across sectors; until deals from more than one sector exist, core changes are provisional.
+5. Negotiation integrity is calibrated separately: the predicate thresholds (40) and the NQS bands are starting values. Backtest them on negotiations whose conduct is well documented (public proxy background, special-committee records) before changing them, and record which dimensions could and could not be observed.
+6. Backtest **per pack** (20 or more deals in the sector) before changing that pack's readings or thresholds. A change to the core needs a pooled backtest across sectors; until deals from more than one sector exist, core changes are provisional.
 
-## 7. Change log
+## 8. Change log
 
 - v0: initial question set, weights and bands (unvalidated).
 - v0.1: added D9 (maintenance and lifecycle burden, weight 2), breaker B11 (catch-up spending), maintenance-adjusted figures (3a). Max score now 60.
 - v0.2: restructured into a sector-neutral core plus packs. Automotive moved to [`../packs/automotive/pack.md`](../packs/automotive/pack.md) as the first pack. **No weight, band or threshold changed**; the max score is still 60. Question numbering (B1 to B11, D1 to D9) is unchanged. Wording was generalized where it named automotive terms; the original wording is kept verbatim in the automotive pack. Section 5 (packs) added; calibration renumbered to 6 and extended per pack.
 - v0.3: **grade rule** replaced by worst-of-three-ceilings (fixes an inversion in the v0.2 table); **maintenance figures** specified further (non-standard-measure note, annual vs one-time, overlap, horizon and discounting, non-positive adjusted EBITDA) and `maint_adj_ebitda_usd_m` and `price_adj_for_known_usd_m` added to the schema; **data model** split into `deals`, `assessments` and `evidence` so one deal carries several assessments and every answer cites evidence; **evidence rule** tightened (`N` needs a supporting row; the earlier "answer N and say why" path for non-applicable questions is gone); added `tools/calculate_grade.py`, `tools/validate_data.py`, tests and a synthetic worked example. **No weight, band boundary or question changed.** The two non-positive-EBITDA rules and the evidence-row requirement are starting values, uncalibrated.
+- v0.1.1 (package DealIntegrity V.0.1.1): renamed from AcquisitionsAnalysis and added **Gate C, negotiation integrity** (`negotiation-0.1`): ten dimensions N1 to N10, the NQS, three failure predicates, a shared-scale **overall verdict**, and an experimental multiplicative diagnostic. Negotiation answers sit in the same assessment row as the structural ones (`assessment_scope` = `structural`, `negotiation` or `both`). **Structural rules are unchanged from core-0.3** (breakers, dimensions, weights, bands, maintenance figures, worst-of-three-ceilings, evidence rules); `grade` was renamed `structural_grade`. Changes to the ideas as drafted by Grok: unknown negotiation dimensions make the result **Unresolved** (they are never skipped); scores are whole numbers; evidence is required per scored dimension; `negative_finding`, `inference`, `interview` and `internal` evidence types added; the multiplicative form is a diagnostic, not a governing form. Starting values, all uncalibrated: the predicate threshold, the NQS bands, the unknown rule, the factor mapping in 4.6, the shared-scale mapping.
