@@ -1,1 +1,1 @@
-Use at own risk.
+Use at own risk. This framework produces structured opinions backed by cited evidence. It is not investment advice, a valuation, a price target, or a recommendation to buy, sell, or hold any security or company. Grades and classifications are analytical judgments under the method's own rules, not facts.

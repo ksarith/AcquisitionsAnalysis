@@ -1,19 +1,25 @@
-# Acquisitions Analysis
+# DealIntegrity
 
-A structured way to judge M&A deals in any sector: first screen for deal breakers, then score the rest, then grade each deal **Great / Good / Okay / Bad / Horrid**.
+Two questions about an M&A deal, answered separately and then combined by a hard rule:
 
-The core method is sector-neutral. Sector knowledge lives in **packs** (specializations) that sharpen the core questions for one industry. Automotive is the first pack. A deal can also be graded with the core alone.
+1. **Is the deal sound?** (structural integrity) Eleven deal breakers, nine scored dimensions, graded **Great / Good / Okay / Bad / Horrid**.
+2. **Was it negotiated with integrity?** (negotiation integrity) Ten dimensions, three failure predicates, classified **Exceptional / High Quality / Competent / Marginal / Poor / Failed**.
+
+The **overall verdict** is the worse of the two. A good deal reached by a deceptive process, or a clean process that produced a fatally flawed deal, cannot hide behind its strong side.
+
+The structural method is carried forward unchanged from AcquisitionsAnalysis (core-0.3). The negotiation layer is new (negotiation-0.1): the idea is Grok's DealIntegrity v0.1.0 draft, rebuilt on the tested core. The method is sector-neutral; sector knowledge lives in **packs**. Automotive is the first pack.
 
 The analyst or agent gathers evidence and answers the questions. **A tool applies the grade rules** and checks the record, so the arithmetic and the precedence are never improvised.
 
 ## How it works
 
-1. **Gate 1: Deal breakers.** Eleven mandatory questions. Any unmitigated "yes" (or unresolved "unknown") makes the deal Horrid, whatever else it scores.
-2. **Gate 2: Scored dimensions.** Nine dimensions, each with mandatory questions, scored 0 to 4.
-3. **Grade.** The worst of three ceilings (breakers, zero-scored dimensions, score band).
-4. **Backtest.** Assess closed deals twice: once using only what was known at announcement (`prospective`), once with hindsight (`retrospective`). The gap shows whether the questions work.
+1. **Choose the scope** of the assessment: `structural`, `negotiation`, or `both`.
+2. **Structural: Gate A** (eleven breakers: any unmitigated "yes" or unresolved "unknown" makes the deal Horrid) then **Gate B** (nine dimensions scored 0 to 4). The grade is the worst of three ceilings: breakers, zero-scored dimensions, score band.
+3. **Negotiation: Gate C** (ten dimensions scored 0 to 100, or left blank if unknown). A blank dimension makes the result **Unresolved**, never a pass. A failure predicate (epistemic integrity, risk allocation or procedural legitimacy below 40) makes it **Failed** whatever else it scores.
+4. **Overall verdict:** the worse of the in-scope sides, with the side that drove it and a flag if unknowns leave it provisional.
+5. **Backtest.** Assess closed deals twice: once with only what was known at the time (`prospective`), once with hindsight (`retrospective`).
 
-If the deal's sector has a pack, answer the core questions *as sharpened by the pack*. The weights, bands and grade rule never change by pack, so grades stay comparable across sectors.
+Every answer cites evidence. Weights, bands, predicates and the verdict rule never change by pack or by assessor.
 
 ## Data
 
@@ -22,20 +28,22 @@ Three tables in `data/`, joined by id (field definitions in [`docs/schema.md`](d
 | Table | One row per | Holds |
 |-------|-------------|-------|
 | [`data/deals.csv`](data/deals.csv) | deal | Facts only: parties, status, value, outcome notes |
-| [`data/assessments.csv`](data/assessments.csv) | grading of a deal | Breaker answers, dimension scores, maintenance figures, computed grade. A deal can have several |
-| [`data/evidence.csv`](data/evidence.csv) | piece of evidence | Source, date, what it establishes, and which answer it backs |
+| [`data/assessments.csv`](data/assessments.csv) | assessment of a deal | Structural answers, negotiation scores, maintenance figures, computed grades. A deal can have several |
+| [`data/evidence.csv`](data/evidence.csv) | piece of evidence | Source, date, type, what it establishes, which answer it backs |
+
+Structural and negotiation answers share one assessment row; fields of a side that is out of scope stay blank.
 
 ## Check your work
 
 Standard library only (Python 3).
 
 ```
-python3 tools/calculate_grade.py data/assessments.csv      # recompute grades and maintenance figures
-python3 tools/validate_data.py                             # headers, ids, evidence rules, computed fields
-python3 -m unittest discover -s tests                      # the tool's own tests
+python3 tools/calculate_grade.py data/assessments.csv      # recompute grades, scores, verdict
+python3 tools/validate_data.py                             # headers, ids, scope, evidence rules, computed fields
+python3 -m unittest discover -s tests                      # the tools' own tests
 ```
 
-Both tools exit 0 when clean, 3 when they find problems, 2 on a usage or input error. A synthetic worked example (invented deal, prospective and retrospective assessments) is in [`examples/synthetic/`](examples/synthetic/): run the tools on it with `--data examples/synthetic` or by passing its `assessments.csv`. Never copy it into `data/`.
+Both tools exit 0 when clean, 3 when they find problems, 2 on a usage or input error. A synthetic worked example (an invented deal with a prospective structural assessment, a retrospective one covering both sides, and a negotiation-only one with an unknown) is in [`examples/synthetic/`](examples/synthetic/): run `python3 tools/validate_data.py --data examples/synthetic`. Never copy it into `data/`.
 
 ## For agents
 
@@ -43,7 +51,7 @@ Both tools exit 0 when clean, 3 when they find problems, 2 on a usage or input e
 
 ## Documents
 
-- Core questions, scoring and grade rules: [`docs/methodology.md`](docs/methodology.md)
+- Method: [`docs/methodology.md`](docs/methodology.md)
 - Field definitions and evidence rules: [`docs/schema.md`](docs/schema.md)
 - Packs (how they work, how to add one): [`packs/README.md`](packs/README.md)
 
@@ -53,18 +61,14 @@ Both tools exit 0 when clean, 3 when they find problems, 2 on a usage or input e
 |------|---------|--------|
 | [`automotive`](packs/automotive/pack.md) | 0.1 | OEMs, Tier 1/2/3 suppliers, EV/battery, ADAS/software, aftermarket |
 
-## Scope
-
-- The core has no sector, size, region or date limit of its own. A pack sets the scope for deals graded with it.
-- Include failed, withdrawn and blocked deals. They teach as much as closed ones.
-
 ## Rules
 
 - Every answer needs a source or an explicit "unknown". Unknown is never a pass, and "nothing found" is a finding that needs its own evidence row.
-- Do not commit paid-database exports (CapIQ, PitchBook, etc.). Commit only your own derived fields and summaries.
-- Grades are opinions with evidence, not facts. Record `grade_basis`, `assessment_date` and `method_version` every time.
+- Do not commit paid-database exports. Commit only your own derived fields and summaries.
+- Grades are opinions with evidence, not facts. Record `grade_basis`, `assessment_scope`, `assessment_date` and `method_version` every time.
 - `maint_adj_ebitda` is an analytical proxy defined in the methodology, not a standard accounting measure.
+- Negotiation conduct is often private. Score only what the record supports; leave the rest blank.
 
 ## Status
 
-Early draft (package v0.0.4; core method v0.3). It is a methodology with deterministic checks, not yet a validated predictor. Grade thresholds and weights are starting values and have not been calibrated; no real deals have been assessed. v0.3 fixed a grading inversion, added the three-table data model, the evidence rules and the tools. It changed no weight, band boundary or question. Package v0.0.4 added `SKILL.md` and the report template; the core method is unchanged.
+Early draft (package v0.1.1). A methodology with deterministic checks, not yet a validated predictor. The structural layer (core-0.3) has starting-value thresholds and no real deals assessed. The negotiation layer (negotiation-0.1) is newer: its bands, predicate thresholds, unknown rule and the multiplicative diagnostic are starting values that have not been tried on real negotiations. See [`Disclaimer.md`](Disclaimer.md).
