@@ -8,11 +8,13 @@ Checks (errors fail the run; warnings are reported):
   - headers match the field lists in docs/schema.md, in order
   - enum, date, integer and number formats
   - ids: unique assessment and evidence ids; deal and assessment references resolve
-  - computed fields (weighted_score, score_pct, grade, maintenance figures) match calculate_grade
-  - evidence rules: every non-U breaker answer has a `supports` row; any `M` has breaker_notes;
-    prospective assessments have information_cutoff and only cite evidence dated on or before it
-  - maintenance rules: D9 <= 2 if maintenance capex is blank; D4 <= 1 if adjusted EBITDA is not positive
-    (and maint_notes explains it); known_upcoming_costs >= catchup_capex
+  - scope: out-of-scope sides are blank; in-scope sides are complete
+  - computed fields (structural, negotiation, overall, maintenance) match calculate_grade
+  - evidence rules: every non-U breaker answer and every non-blank negotiation score has a
+    `supports` row; any `M` has breaker_notes; prospective assessments have information_cutoff
+    and only cite evidence dated on or before it
+  - maintenance rules: D9 <= 2 if maintenance capex is blank; D4 <= 1 if adjusted EBITDA is not
+    positive (and maint_notes explains it); known_upcoming_costs >= catchup_capex
 Exit codes: 0 no errors; 2 usage or input error; 3 errors found. Standard library only.
 """
 import argparse
@@ -26,7 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import calculate_grade as cg  # noqa: E402
 
-VERSION = "0.0.3"
+VERSION = "0.1.1"
 
 ENUMS = {
     "deals": {
@@ -40,14 +42,20 @@ ENUMS = {
     "assessments": {
         "grade_basis": {"prospective", "retrospective"},
         "grade_perspective": {"acquirer", "target_holders", "neutral"},
+        "assessment_scope": cg.SCOPES,
         "warranty_trend": {"rising", "flat", "falling", "unknown"},
         "maint_basis": {"disclosed", "reported", "estimated", "unknown"},
-        "grade": set(cg.GRADES),
+        "structural_grade": set(cg.GRADES),
+        "negotiation_classification": cg.NEG_CLASSES,
+        "overall_integrity_verdict": set(cg.GRADES),
+        "overall_driver": {"structural", "negotiation", "both"},
+        "overall_provisional": {"yes", "no"},
         "pack_breakers": cg.PACK_BREAKER_VALUES,
         **{f: cg.BREAKER_VALUES for f in cg.BREAKER_FIELDS},
     },
     "evidence": {
-        "evidence_type": {"filing", "press_release", "regulator", "analyst_estimate", "news", "other"},
+        "evidence_type": {"filing", "press_release", "regulator", "analyst_estimate", "news", "interview",
+                          "internal", "negative_finding", "inference", "other"},
         "bearing": {"supports", "contradicts", "inconclusive"},
         "confidence": {"high", "medium", "low"},
     },
@@ -58,10 +66,22 @@ DATES = {"deals": ["announced_date", "closed_date", "last_verified"],
 NUMBERS = {"deals": ["value_usd_m", "ev_revenue", "ev_ebitda"],
            "assessments": ["ebitda_usd_m", "maint_capex_usd_m", "growth_capex_usd_m", "catchup_capex_usd_m",
                            "warranty_pct_revenue", "warranty_normalization_usd_m", "known_upcoming_costs_usd_m",
-                           "maint_adj_ebitda_usd_m", "maint_adj_ev_ebitda", "price_adj_for_known_usd_m", "score_pct"],
+                           "maint_adj_ebitda_usd_m", "maint_adj_ev_ebitda", "price_adj_for_known_usd_m",
+                           "score_pct", "nqs", "nq_multiplicative"],
            "evidence": []}
-QUESTION_BASE = ["b%d" % i for i in range(1, 12)] + ["d%d" % i for i in range(1, 10)] + ["maint"]
+BREAKER_Q = ["b%d" % i for i in range(1, 12)]
+DIM_Q = ["d%d" % i for i in range(1, 10)]
+N_Q = ["n%d" % i for i in range(1, 11)]
+QUESTION_BASE = BREAKER_Q + DIM_Q + N_Q + ["maint"]
 PACK_Q = re.compile(r"^[a-z][a-z0-9]*_b[0-9]+$")
+STRUCT_FIELDS = (cg.BREAKER_FIELDS + ["pack_breakers"] + list(cg.DIM_WEIGHTS))
+STRUCT_COMPUTED = ["weighted_score", "score_pct", "structural_grade"]
+MAINT_INPUTS = ["ebitda_usd_m", "maint_capex_usd_m", "growth_capex_usd_m", "catchup_capex_usd_m",
+                "warranty_pct_revenue", "warranty_trend", "warranty_normalization_usd_m",
+                "known_upcoming_costs_usd_m", "maint_basis", "maint_notes",
+                "maint_adj_ebitda_usd_m", "maint_adj_ev_ebitda", "price_adj_for_known_usd_m"]
+NEG_FIELDS = list(cg.N_WEIGHTS)
+NEG_COMPUTED = ["nqs", "negotiation_classification", "failure_predicates", "nq_multiplicative"]
 
 
 class Report:
@@ -122,6 +142,10 @@ def num(s):
     return float(s) if s else None
 
 
+def blank(r, f):
+    return (r.get(f) or "").strip() == ""
+
+
 def format_checks(table, rows, rep, idfield):
     for r in rows:
         key = r.get(idfield) or "?"
@@ -172,7 +196,7 @@ def validate(data_dir, schema_path):
             rep.err("evidence", e["evidence_id"], "assessment_id %r not in assessments.csv" % e["assessment_id"])
         q = (e.get("question_id") or "").strip()
         if q not in QUESTION_BASE and not PACK_Q.match(q):
-            rep.err("evidence", e["evidence_id"], "question_id %r is not b1-b11, d1-d9, maint or a pack breaker id" % q)
+            rep.err("evidence", e["evidence_id"], "question_id %r is not b1-b11, d1-d9, n1-n10, maint or a pack breaker id" % q)
 
     for a in assess:
         aid = a["assessment_id"]
@@ -182,6 +206,24 @@ def validate(data_dir, schema_path):
         qs = {}
         for e in ev:
             qs.setdefault((e.get("question_id") or "").strip(), []).append(e)
+        supports = lambda q: any((e.get("bearing") or "").strip() == "supports" for e in qs.get(q, []))  # noqa: E731
+
+        scope = (a.get("assessment_scope") or "").strip()
+        if scope not in cg.SCOPES:
+            rep.err("assessments", aid, "assessment_scope must be structural, negotiation or both (got %r)" % scope)
+            continue
+        in_struct = scope in ("structural", "both")
+        in_neg = scope in ("negotiation", "both")
+
+        # scope: out-of-scope sides stay blank
+        if not in_struct:
+            extra = [f for f in STRUCT_FIELDS + STRUCT_COMPUTED + ["breaker_notes"] + MAINT_INPUTS if not blank(a, f)]
+            if extra:
+                rep.err("assessments", aid, "scope is negotiation but structural fields are filled: %s" % ", ".join(extra))
+        if not in_neg:
+            extra = [f for f in NEG_FIELDS + NEG_COMPUTED + ["negotiation_notes"] if not blank(a, f)]
+            if extra:
+                rep.err("assessments", aid, "scope is structural but negotiation fields are filled: %s" % ", ".join(extra))
 
         # computed fields
         ev_value = num(deal_by_id.get(a["deal_id"], {}).get("value_usd_m"))
@@ -194,22 +236,37 @@ def validate(data_dir, schema_path):
             for d in cg.compare(a, comp):
                 rep.err("assessments", aid, "%s: recorded %r, computed %r" % (d["field"], d["recorded"], d["computed"]))
 
-        # breaker evidence rules
-        for f, qid in zip(cg.BREAKER_FIELDS, ["b%d" % i for i in range(1, 12)]):
-            ans = (a.get(f) or "").strip()
-            if ans == "U":
-                rep.warn("assessments", aid, "%s is U (unresolved unknown): grade cannot rise above horrid until resolved" % f)
-            elif ans in ("Y", "N", "M"):
-                if not any((e.get("bearing") or "").strip() == "supports" for e in qs.get(qid, [])):
+        # structural evidence rules
+        if in_struct:
+            for f, qid in zip(cg.BREAKER_FIELDS, BREAKER_Q):
+                ans = (a.get(f) or "").strip()
+                if ans == "U":
+                    rep.warn("assessments", aid, "%s is U (unresolved unknown): the grade stays horrid until resolved" % f)
+                elif ans in ("Y", "N", "M") and not supports(qid):
                     rep.err("assessments", aid, "%s answered %s but has no 'supports' evidence row for %s" % (f, ans, qid))
-            if ans == "M" and not (a.get("breaker_notes") or "").strip():
-                rep.err("assessments", aid, "%s is M but breaker_notes is empty" % f)
+                if ans == "M" and blank(a, "breaker_notes"):
+                    rep.err("assessments", aid, "%s is M but breaker_notes is empty" % f)
+            for f in cg.DIM_WEIGHTS:
+                qid = f.split("_")[0]
+                if qid not in qs:
+                    rep.warn("assessments", aid, "dimension %s has no evidence rows" % qid)
+
+        # negotiation evidence rules
+        if in_neg:
+            for f, qid in zip(NEG_FIELDS, N_Q):
+                if blank(a, f):
+                    rep.warn("assessments", aid, "%s is unknown (blank): the negotiation stays unresolved until it is answered" % qid)
+                    continue
+                if not supports(qid):
+                    rep.err("assessments", aid, "%s scored but has no 'supports' evidence row for %s" % (f, qid))
+                else:
+                    sup = [e for e in qs.get(qid, []) if (e.get("bearing") or "").strip() == "supports"]
+                    if all((e.get("evidence_type") or "").strip() == "inference" for e in sup):
+                        rep.warn("assessments", aid, "%s rests only on inference (no direct evidence)" % qid)
+
         for qid, rows_ in qs.items():
-            if any((e.get("bearing") or "").strip() == "contradicts" for e in rows_) and not (a.get("breaker_notes") or "").strip() and not (a.get("notes") or "").strip():
+            if any((e.get("bearing") or "").strip() == "contradicts" for e in rows_) and blank(a, "breaker_notes") and blank(a, "negotiation_notes") and blank(a, "notes"):
                 rep.warn("assessments", aid, "%s has contradicting evidence but the assessment has no notes explaining it" % qid)
-        for f, qid, _ in [(d, d.split("_")[0], 0) for d in cg.DIM_WEIGHTS]:
-            if qid not in qs:
-                rep.warn("assessments", aid, "dimension %s has no evidence rows" % qid)
 
         # information cutoff
         basis = (a.get("grade_basis") or "").strip()
@@ -224,30 +281,34 @@ def validate(data_dir, schema_path):
                         rep.err("evidence", e["evidence_id"], "prospective evidence needs source_date")
                     elif is_date(sd) and is_date(cutoff) and sd > cutoff:
                         rep.err("evidence", e["evidence_id"], "source_date %s is after information_cutoff %s of %s (hindsight in a prospective assessment)" % (sd, cutoff, aid))
+            for e in ev:
+                if (e.get("evidence_type") or "").strip() == "internal":
+                    rep.warn("evidence", e["evidence_id"], "internal evidence in a prospective assessment: confirm it was available to the assessor's perspective at the time")
         elif basis == "retrospective" and cutoff:
             rep.warn("assessments", aid, "retrospective assessment has an information_cutoff; it will not limit evidence")
 
-        # maintenance rules
-        try:
-            d9 = int((a.get("d9_maintenance_lifecycle") or "").strip())
-            d4 = int((a.get("d4_financial_quality") or "").strip())
-        except ValueError:
-            d9 = d4 = None
-        if d9 is not None and num(a.get("maint_capex_usd_m")) is None and d9 > 2:
-            rep.err("assessments", aid, "maint_capex_usd_m is unknown, so D9 may not exceed 2 (scored %d)" % d9)
-        if comp and comp["adjusted_ebitda_not_positive"]:
-            if d4 is not None and d4 > 1:
-                rep.err("assessments", aid, "adjusted EBITDA is not positive, so D4 may not exceed 1 (scored %d)" % d4)
-            if not (a.get("maint_notes") or "").strip():
-                rep.err("assessments", aid, "adjusted EBITDA is not positive: maint_notes must explain")
-        known, catchup = num(a.get("known_upcoming_costs_usd_m")), num(a.get("catchup_capex_usd_m"))
-        if known is not None and catchup is not None and known < catchup:
-            rep.err("assessments", aid, "known_upcoming_costs (%.2f) is below catchup_capex (%.2f), but it includes it" % (known, catchup))
+        # maintenance rules (structural only)
+        if in_struct and comp:
+            try:
+                d9 = int((a.get("d9_maintenance_lifecycle") or "").strip())
+                d4 = int((a.get("d4_financial_quality") or "").strip())
+            except ValueError:
+                d9 = d4 = None
+            if d9 is not None and num(a.get("maint_capex_usd_m")) is None and d9 > 2:
+                rep.err("assessments", aid, "maint_capex_usd_m is unknown, so D9 may not exceed 2 (scored %d)" % d9)
+            if comp["maintenance"]["adjusted_ebitda_not_positive"]:
+                if d4 is not None and d4 > 1:
+                    rep.err("assessments", aid, "adjusted EBITDA is not positive, so D4 may not exceed 1 (scored %d)" % d4)
+                if blank(a, "maint_notes"):
+                    rep.err("assessments", aid, "adjusted EBITDA is not positive: maint_notes must explain")
+            known, catchup = num(a.get("known_upcoming_costs_usd_m")), num(a.get("catchup_capex_usd_m"))
+            if known is not None and catchup is not None and known < catchup:
+                rep.err("assessments", aid, "known_upcoming_costs (%.2f) is below catchup_capex (%.2f), but it includes it" % (known, catchup))
     return rep, {t: len(r) for t, r in tables.items()}
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Validate Acquisitions Analysis data tables")
+    ap = argparse.ArgumentParser(description="Validate DealIntegrity data tables")
     ap.add_argument("--data", default="data")
     ap.add_argument("--schema", default="docs/schema.md")
     ap.add_argument("--out", default=None)
