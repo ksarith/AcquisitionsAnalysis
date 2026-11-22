@@ -20,6 +20,7 @@ The core method is sector-neutral. Sector knowledge lives in addenda under [`sec
 | [`data/deals.csv`](data/deals.csv) | One row per deal, all sectors |
 | [`sectors/automotive.md`](sectors/automotive.md) | Automotive addendum: sector probes, vocabulary, scope |
 | [`sectors/TEMPLATE.md`](sectors/TEMPLATE.md) | Scaffold for adding a new sector track |
+| [`docs/references.md`](docs/references.md) | Outside reading and candidate improvements (not enacted) |
 
 ## Sector tracks
 
